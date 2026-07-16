@@ -10,8 +10,9 @@ spending dashboard. Single user, runs locally, all amounts in **RON**.
 .venv/bin/python app.py          # dashboard at http://localhost:5000 (Flask debug, auto-reload)
 ```
 
-Dependencies: `flask` (dashboard) and `anthropic` (only `tag.py`). Note the `Pipfile`
-is empty — deps live in `.venv` and aren't declared. Python 3.12.
+Dependencies (declared in `Pipfile`): `flask` (dashboard) and `anthropic` (only `tag.py`).
+The checked-in `.venv` runs Python 3.9.6; `anthropic` isn't installed there yet, so
+`tag.py` needs `pip install anthropic` before its first run. No `Pipfile.lock`.
 
 ## Data pipeline (3 stages)
 
