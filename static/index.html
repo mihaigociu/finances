@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Finance Dashboard</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+</head>
+<body>
+
+<header>
+  <h1>Finance Dashboard</h1>
+  <div class="filters">
+    <select id="year-filter"><option value="">All years</option></select>
+    <select id="card-filter"><option value="">All cards</option></select>
+    <button id="import-btn" class="btn">Import CSV</button>
+    <input type="file" id="import-file" accept=".csv,text/csv" hidden>
+  </div>
+</header>
+
+<nav class="tabs">
+  <button class="tab-btn active" data-tab="overview">Overview</button>
+  <button class="tab-btn" data-tab="trends">Monthly</button>
+  <button class="tab-btn" data-tab="transactions">Transactions</button>
+  <button class="tab-btn" data-tab="merchants">Merchants</button>
+</nav>
+
+<main>
+
+  <!-- OVERVIEW -->
+  <div id="tab-overview" class="tab-content active">
+    <div class="kpi-row">
+      <div class="kpi-card">
+        <div class="kpi-label">Total Spending</div>
+        <div class="kpi-value" id="kpi-total">—</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Top Category</div>
+        <div class="kpi-value" id="kpi-top-cat" style="font-size:20px">—</div>
+        <div class="kpi-sub" id="kpi-top-amt"></div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Transactions</div>
+        <div class="kpi-value" id="kpi-count">—</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Avg / Month</div>
+        <div class="kpi-value" id="kpi-avg">—</div>
+        <div class="kpi-sub" id="kpi-months"></div>
+      </div>
+    </div>
+
+    <div class="charts-row">
+      <div class="chart-card">
+        <h2>Spending by Category</h2>
+        <div class="chart-wrap" style="height:320px">
+          <canvas id="donut-chart"></canvas>
+        </div>
+      </div>
+      <div class="chart-card">
+        <h2>Top Vendors</h2>
+        <div class="scrollable">
+          <table class="vendor-table">
+            <thead>
+              <tr>
+                <th>Vendor</th>
+                <th>Category</th>
+                <th>Txns</th>
+                <th style="text-align:right">Total</th>
+                <th style="text-align:right">%</th>
+              </tr>
+            </thead>
+            <tbody id="vendors-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MONTHLY TRENDS -->
+  <div id="tab-trends" class="tab-content">
+    <div class="chart-card" style="margin-bottom:16px">
+      <h2>Monthly Spending by Category</h2>
+      <div class="chart-wrap" style="height:340px">
+        <canvas id="stacked-chart"></canvas>
+      </div>
+    </div>
+    <div class="chart-card">
+      <h2>Category Trends</h2>
+      <div id="line-toggles" class="cat-toggles"></div>
+      <div class="chart-wrap" style="height:300px">
+        <canvas id="line-chart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- TRANSACTIONS -->
+  <div id="tab-transactions" class="tab-content">
+    <div class="txn-controls">
+      <input type="text" id="txn-search" placeholder="Search vendor, beneficiary…">
+      <select id="cat-filter"><option value="">All categories</option></select>
+    </div>
+    <div class="table-wrap">
+      <table class="txn-table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Vendor / Party</th>
+            <th>Category</th>
+            <th>Card</th>
+            <th style="text-align:right">Amount</th>
+          </tr>
+        </thead>
+        <tbody id="txn-body"></tbody>
+      </table>
+    </div>
+    <div id="pagination" class="pagination"></div>
+  </div>
+
+  <!-- MERCHANTS -->
+  <div id="tab-merchants" class="tab-content">
+    <div class="txn-controls">
+      <input type="text" id="merchant-search" placeholder="Search merchant…">
+      <select id="merchant-filter">
+        <option value="all">All merchants</option>
+        <option value="untagged">Untagged</option>
+        <option value="unconfirmed">AI-guessed (unconfirmed)</option>
+        <option value="confirmed">Confirmed by me</option>
+      </select>
+      <span id="merchant-count" class="page-info"></span>
+    </div>
+    <div class="table-wrap">
+      <table class="txn-table merchant-table">
+        <thead>
+          <tr>
+            <th>Merchant</th>
+            <th>Category</th>
+            <th style="text-align:center">Status</th>
+            <th style="text-align:right">Txns</th>
+            <th style="text-align:right">Total</th>
+          </tr>
+        </thead>
+        <tbody id="merchant-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+</main>
+
+<div id="toast" class="toast" hidden></div>
+
+<script src="app.js"></script>
+</body>
+</html>

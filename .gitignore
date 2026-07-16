@@ -1,0 +1,12 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Personal financial data — NEVER commit (contains name, CNP, account numbers, transactions)
+*.csv
+transactions.db
+transactions.db.bak-*
+
+# Local machine-specific Claude settings
+.claude/settings.local.json
