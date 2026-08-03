@@ -38,7 +38,7 @@ const ALL_CATS = [
 // App state
 const S = {
   card: '', year: '', tab: 'overview',
-  search: '', txnCategory: '', txnPage: 1,
+  search: '', txnCategory: '', txnMonth: '', txnView: '', txnPage: 1,
   summary: [], monthly: [], vendors: [],
   merchantSearch: '', merchantFilter: 'all', merchantsStale: false,
 };
@@ -124,6 +124,26 @@ async function init() {
 
   catFilter.addEventListener('change', () => {
     S.txnCategory = catFilter.value;
+    renderTransactions(1);
+  });
+
+  const monthFilter = document.getElementById('month-filter');
+  const monthNames = ['January','February','March','April','May','June',
+                      'July','August','September','October','November','December'];
+  monthNames.forEach((name, i) => {
+    const o = document.createElement('option');
+    o.value = String(i + 1).padStart(2, '0');
+    o.textContent = name;
+    monthFilter.appendChild(o);
+  });
+  monthFilter.addEventListener('change', () => {
+    S.txnMonth = monthFilter.value;
+    renderTransactions(1);
+  });
+
+  const viewSel = document.getElementById('txn-view');
+  viewSel.addEventListener('change', () => {
+    S.txnView = viewSel.value;
     renderTransactions(1);
   });
 
@@ -466,14 +486,33 @@ function renderLineChart() {
 
 // ── Transactions ──────────────────────────────────────────────────────────────
 
+const TXN_HEAD_LIST = `
+  <tr>
+    <th>Date</th><th>Vendor / Party</th><th>Category</th><th>Card</th>
+    <th style="text-align:right">Amount</th>
+  </tr>`;
+const TXN_HEAD_VENDOR = `
+  <tr>
+    <th>Vendor / Party</th><th>Category</th>
+    <th style="text-align:right">Txns</th><th style="text-align:right">Total</th>
+  </tr>`;
+
 async function renderTransactions(page) {
   S.txnPage = page;
   const p = qs();
   if (S.txnCategory) p.set('category', S.txnCategory);
+  if (S.txnMonth) p.set('month', S.txnMonth);
   if (S.search) p.set('search', S.search);
+
+  if (S.txnView === 'vendor') {
+    p.set('group', 'vendor');
+    return renderTransactionsByVendor(p);
+  }
+
   p.set('page', page);
   p.set('per_page', 50);
 
+  document.getElementById('txn-head').innerHTML = TXN_HEAD_LIST;
   const data = await api('/api/transactions?' + p);
 
   const tbody = document.getElementById('txn-body');
@@ -503,6 +542,43 @@ async function renderTransactions(page) {
   });
 
   renderPagination(data.total, page, data.per_page);
+}
+
+async function renderTransactionsByVendor(p) {
+  document.getElementById('txn-head').innerHTML = TXN_HEAD_VENDOR;
+  const data = await api('/api/transactions?' + p);
+
+  const tbody = document.getElementById('txn-body');
+  tbody.innerHTML = '';
+
+  data.vendors.forEach(v => {
+    const name = v.vendor || '—';
+    const tr = document.createElement('tr');
+    tr.style.cursor = 'pointer';
+    tr.title = 'Show transactions for this vendor';
+    tr.innerHTML = `
+      <td style="max-width:280px">
+        <div style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(name)}</div>
+      </td>
+      <td>${badge(v.category || '—')}</td>
+      <td style="text-align:right;color:var(--muted);font-size:12px">${v.count}×</td>
+      <td class="amount-debit" style="text-align:right;white-space:nowrap">−${fmt(v.total)}</td>
+    `;
+    // Drill in: click a vendor to see its individual transactions under the same filters.
+    tr.addEventListener('click', () => {
+      const searchInput = document.getElementById('txn-search');
+      searchInput.value = name;
+      S.search = name;
+      const viewSel = document.getElementById('txn-view');
+      viewSel.value = '';
+      S.txnView = '';
+      renderTransactions(1);
+    });
+    tbody.appendChild(tr);
+  });
+
+  // No server-side paging for the grouped view — clear the pager.
+  document.getElementById('pagination').innerHTML = '';
 }
 
 function renderPagination(total, page, perPage) {

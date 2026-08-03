@@ -145,7 +145,9 @@ def vendors():
 def transactions():
     card = request.args.get("card")
     year = request.args.get("year")
+    month = request.args.get("month")
     category = request.args.get("category")
+    group = request.args.get("group")
     search = request.args.get("search", "").strip()
     page = max(1, int(request.args.get("page", 1)))
     per_page = min(100, int(request.args.get("per_page", 50)))
@@ -158,6 +160,9 @@ def transactions():
     if year:
         clauses.append("strftime('%Y', COALESCE(auth_date, settlement_date)) = ?")
         params.append(year)
+    if month:
+        clauses.append("strftime('%m', COALESCE(auth_date, settlement_date)) = ?")
+        params.append(month)
     if category:
         clauses.append("category = ?")
         params.append(category)
@@ -170,6 +175,23 @@ def transactions():
 
     where = " AND ".join(clauses)
     con = db()
+
+    if group == "vendor":
+        # Collapse the same filtered set to one row per vendor (spending = debit sum),
+        # ordered biggest-first — e.g. top groceries vendors for a month.
+        rows = con.execute(
+            f"""SELECT COALESCE(vendor_norm, beneficiary, type) AS vendor,
+                       MAX(category) AS category,
+                       COUNT(*) AS count,
+                       ROUND(SUM(CASE WHEN direction = 'debit' THEN amount ELSE 0 END), 2) AS total
+                FROM transactions WHERE {where}
+                GROUP BY COALESCE(vendor_norm, beneficiary, type)
+                ORDER BY total DESC, count DESC""",
+            params,
+        ).fetchall()
+        con.close()
+        return jsonify({"group": "vendor", "vendors": [dict(r) for r in rows]})
+
     total = con.execute(
         f"SELECT COUNT(*) FROM transactions WHERE {where}", params
     ).fetchone()[0]
