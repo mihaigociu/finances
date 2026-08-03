@@ -105,9 +105,57 @@ def parse_amount(s: str) -> float | None:
         return None
 
 
+# Detail-line field labels ING has used, tried in order. The bank renames these between
+# statement formats (e.g. the merchant line has been both "Tranzactie la" and "Terminal"),
+# so each logical field matches on any known synonym rather than one fixed label. Add a
+# synonym here — don't hardcode a single label at the call site — when a new export renames
+# a field.
+DETAIL_LABELS: dict[str, list[str]] = {
+    "settlement":   ["Data finalizarii (decontarii)", "Data"],
+    "auth_date":    ["Data autorizarii"],
+    "auth_number":  ["Numar autorizare"],
+    "reference":    ["Referinta"],
+    "card":         ["Numar card"],
+    "merchant":     ["Tranzactie la", "Terminal"],
+    "counterparty": ["Beneficiar", "Ordonator"],
+    "note":         ["Detalii"],
+}
+
+# Country codes ING appends before the city in the newer single-spaced merchant format.
+# "RO" (domestic) covers almost everything; the rest cover foreign card transactions.
+_COUNTRY_CODES = "NL GB IE US FR IT ES AT BE CH PL CZ HU BG GR PT DK SE NO FI IL TR AE".split()
+
+
+def detail(d: dict, field: str) -> str | None:
+    """Value of a logical detail field, matched against any label ING uses for it."""
+    for label in DETAIL_LABELS[field]:
+        if d.get(label):
+            return d[label]
+    return None
+
+
+def strip_country_suffix(name: str) -> str:
+    """Drop a trailing "<COUNTRY_CODE> <city>" from the single-spaced merchant format.
+
+    Domestic merchants always carry "RO", so we cut at its last occurrence — this avoids
+    tripping on "DE"/"LA"/etc. that appear inside city names (e.g. "OARTA DE SUS"). Foreign
+    card transactions ("Disney Plus NL Hoofddorp") use another country code, handled as a
+    fallback. Names in the old double-spaced format have no country token left by this point
+    and are returned unchanged.
+    """
+    matches = list(re.finditer(r"\s+RO\s+\S", name))
+    if not matches:
+        pattern = r"\s+(?:" + "|".join(_COUNTRY_CODES) + r")\s+\S"
+        matches = list(re.finditer(pattern, name))
+    return name[:matches[-1].start()].strip() if matches else name
+
+
 def normalize_vendor(raw: str) -> str:
-    # Drop country/city suffix (everything after the first double-space)
-    name = re.split(r"\s{2,}", raw)[0].strip()
+    # Two export formats append a country/city suffix after the merchant name:
+    #   old: separated by 2+ spaces          -> "LUKOIL  RO  CLUJ"
+    #   new: single-spaced with country code  -> "KIMY S BAKERY SRL RO OARTA DE SUS"
+    name = re.split(r"\s{2,}", raw)[0].strip()   # old format: cut at the gap
+    name = strip_country_suffix(name)            # new format: cut at the country code
     # Strip common Romanian legal suffixes
     name = re.sub(r"\s+S\.?\s*R\.?\s*L\.?$", "", name, flags=re.IGNORECASE).strip()
     name = re.sub(r"\s+S\.?\s*A\.?$", "", name, flags=re.IGNORECASE).strip()
@@ -264,30 +312,30 @@ def parse_transactions(filepath: Path) -> list[dict]:
 
         d = cur_details
         settlement = (
-            parse_date_dmy(d.get("Data finalizarii (decontarii)", ""))
-            or parse_date_dmy(d.get("Data", ""))
+            parse_date_dmy(detail(d, "settlement") or "")
             or parse_date_ro(cur_date_str or "")
         )
-        auth_date = parse_date_dmy(d.get("Data autorizarii", ""))
-        auth_number = d.get("Numar autorizare") or None
-        reference = d.get("Referinta") or None
+        auth_date = parse_date_dmy(detail(d, "auth_date") or "")
+        auth_number = detail(d, "auth_number")
+        reference = detail(d, "reference")
 
-        card_raw = d.get("Numar card", "")
+        card_raw = detail(d, "card") or ""
         card = re.sub(r"[* ]+", "", card_raw).strip() or None
 
-        vendor_raw = d.get("Tranzactie la", None)
+        vendor_raw = detail(d, "merchant")
         vendor_norm = normalize_vendor(vendor_raw) if vendor_raw else None
 
         # Beneficiary for transfers out, Ordonator for incoming
-        beneficiary = d.get("Beneficiar") or d.get("Ordonator") or None
+        beneficiary = detail(d, "counterparty")
 
         # Use beneficiary as vendor_norm for transfers so vendor_tags can tag them
         if vendor_norm is None and beneficiary:
             vendor_norm = normalize_vendor(beneficiary)
 
+        note = detail(d, "note")
         detail_parts = []
-        if "Detalii" in d:
-            detail_parts.append(d["Detalii"])
+        if note:
+            detail_parts.append(note)
         if reference:
             detail_parts.append("Ref:" + reference)
         detail_text = " | ".join(detail_parts) or None

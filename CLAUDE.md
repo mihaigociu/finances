@@ -62,6 +62,16 @@ costs). `savings` flags transfers to own accounts (e.g. beneficiary = the accoun
   with its own shift — the parser skips those (date-rows with no type in the details
   column). Symptom of getting column mapping wrong: all amounts import as `NULL` and nothing
   deduplicates.
+- **Detail-line field labels also vary between layouts** — ING renames the `key:value`
+  lines inside a transaction block (e.g. the merchant line is `Tranzactie la:` in older
+  exports but `Terminal:` in the newest). `import.py` looks each field up via the
+  `DETAIL_LABELS` synonym map (through the `detail()` helper), never a single hardcoded
+  label — add a synonym there when a new export renames one; don't hardcode at the call
+  site. The newest `Terminal:` values are also single-spaced with a `<COUNTRY_CODE> <city>`
+  suffix (vs the old double-space separator), which `normalize_vendor` /
+  `strip_country_suffix` trim so merchants still normalize to the same brand and match
+  `vendor_tags`. Symptom of getting this wrong: `vendor_norm` is `NULL` and the dashboard
+  shows the transaction *type* (e.g. `Cumparare POS`) in place of the merchant.
 - **Dedup key.** Each transaction gets a stable `dedup_key`; import is `INSERT OR IGNORE`.
   Card rows key on `Numar autorizare` + auth date + amount; everything else on a composite
   of date/type/amount/direction/beneficiary/reference. A `#N` occurrence suffix
