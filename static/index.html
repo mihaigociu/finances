@@ -99,11 +99,16 @@
   <div id="tab-transactions" class="tab-content">
     <div class="txn-controls">
       <input type="text" id="txn-search" placeholder="Search vendor, beneficiary…">
+      <select id="month-filter"><option value="">All months</option></select>
       <select id="cat-filter"><option value="">All categories</option></select>
+      <select id="txn-view">
+        <option value="">List view</option>
+        <option value="vendor">Group by vendor</option>
+      </select>
     </div>
     <div class="table-wrap">
       <table class="txn-table">
-        <thead>
+        <thead id="txn-head">
           <tr>
             <th>Date</th>
             <th>Vendor / Party</th>
