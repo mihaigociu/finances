@@ -18,6 +18,7 @@ import sys
 from collections import Counter
 from datetime import date, datetime
 from pathlib import Path
+from typing import NamedTuple
 
 DEFAULT_CSV = Path("Tranzactii_24-04-2026_12-07-55.csv")
 CSV_PATH = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_CSV
@@ -135,18 +136,77 @@ def read_csv(filepath: Path) -> list[list[str]]:
     raise ValueError(f"Cannot decode {filepath}")
 
 
-def detect_amount_columns(rows: list[list[str]]) -> tuple[int, int]:
-    """Locate the Debit/Credit column indices from the header row.
+class Columns(NamedTuple):
+    """Column indices, in *data-row* coordinates, for the fields the parser reads."""
+    date: int      # transaction date, e.g. "01 iulie 2026" — marks a new transaction
+    details: int   # transaction type on the start row; "key:value" detail lines after
+    debit: int     # money out
+    credit: int    # money in
 
-    ING has shipped at least two layouts: the older one puts Debit at col 5,
-    the newer one (with a Balanta column) puts it at col 4. Credit has stayed at
-    col 6 but we read it from the header too. Falls back to the legacy 5/6.
+
+# Header cell text ING uses for each logical column (compared lowercased, exact match).
+HEADER_LABELS = {
+    "date": "data",
+    "details": "detalii tranzactie",
+    "debit": "debit",
+    "credit": "credit",
+}
+
+# Used only when a statement has no recognizable header row.
+LEGACY_COLUMNS = Columns(date=0, details=3, debit=5, credit=6)
+
+
+def find_date_column(rows: list[list[str]]) -> int:
+    """Column in which transaction rows actually carry their Romanian date.
+
+    Each transaction starts with a row whose date cell reads e.g. "01 iulie 2026". We
+    locate that column empirically instead of assuming col 0, so the mapping tolerates a
+    leading-column shift. Returns the most frequent such column (0 if none is found).
     """
+    counts: Counter = Counter()
+    for row in rows:
+        for i, cell in enumerate(row):
+            if parse_date_ro(cell.strip()):
+                counts[i] += 1
+    return counts.most_common(1)[0][0] if counts else 0
+
+
+def detect_columns(rows: list[list[str]]) -> Columns:
+    """Map each field to its data-row column by reading the header, not by fixed order.
+
+    ING has shipped several statement layouts whose columns sit in different positions
+    (and one where a "Balanta" column was inserted). Rather than hardcode indices, we
+    find the header row and look each column up by its label ("Data", "Detalii
+    tranzactie", "Debit", "Credit").
+
+    One quirk needs correcting: the newest export shifts the *entire header row*
+    sideways relative to the data rows (its "Data" label sits a column to the right of
+    where the dates themselves appear), so header indices don't line up with the data.
+    We measure that shift by comparing the header's date column against where dates
+    actually occur, then translate every header index into data-row coordinates. Falls
+    back to the legacy fixed layout when there is no recognizable header.
+    """
+    date_col = find_date_column(rows)
     for row in rows:
         cells = [c.strip().lower() for c in row]
-        if "debit" in cells and "credit" in cells:
-            return cells.index("debit"), cells.index("credit")
-    return 5, 6
+        if HEADER_LABELS["debit"] in cells and HEADER_LABELS["credit"] in cells:
+            # Distance the header row is shifted from the data rows (0 when aligned).
+            shift = (cells.index(HEADER_LABELS["date"]) - date_col
+                     if HEADER_LABELS["date"] in cells else 0)
+
+            def data_col(field: str) -> int:
+                label = HEADER_LABELS[field]
+                if label in cells:
+                    return cells.index(label) - shift
+                return getattr(LEGACY_COLUMNS, field)
+
+            return Columns(
+                date=date_col,
+                details=data_col("details"),
+                debit=data_col("debit"),
+                credit=data_col("credit"),
+            )
+    return LEGACY_COLUMNS
 
 
 def natural_key(t: dict) -> str:
@@ -187,7 +247,7 @@ def assign_dedup_keys(transactions: list[dict]) -> None:
 
 def parse_transactions(filepath: Path) -> list[dict]:
     rows = read_csv(filepath)
-    debit_col, credit_col = detect_amount_columns(rows)
+    cols = detect_columns(rows)
     transactions: list[dict] = []
 
     # State for the transaction currently being assembled
@@ -199,7 +259,7 @@ def parse_transactions(filepath: Path) -> list[dict]:
 
     def flush() -> None:
         nonlocal cur_type, cur_date_str, cur_amount, cur_direction, cur_details
-        if cur_type is None:
+        if not cur_type:
             return
 
         d = cur_details
@@ -255,23 +315,29 @@ def parse_transactions(filepath: Path) -> list[dict]:
         cur_details = {}
 
     for row in rows:
-        while len(row) <= max(6, debit_col, credit_col):
+        while len(row) <= max(cols):
             row.append("")
 
-        col0 = row[0].strip()
-        col3 = row[3].strip()
-        debit = row[debit_col].strip()
-        credit = row[credit_col].strip()
+        date_cell = row[cols.date].strip()
+        detail_cell = row[cols.details].strip()
+        debit = row[cols.debit].strip()
+        credit = row[cols.credit].strip()
 
-        if parse_date_ro(col0):
+        if parse_date_ro(date_cell):
             flush()
-            cur_date_str = col0
-            cur_type = col3
+            # Newest exports append a trailer of pending/unsettled transactions under a
+            # second header with its own column shift; those date-rows carry no type in
+            # the details column. A real transaction always does, so skip typeless rows.
+            if not detail_cell:
+                cur_type = None
+                continue
+            cur_date_str = date_cell
+            cur_type = detail_cell
             cur_amount = parse_amount(debit if debit else credit)
             cur_direction = "debit" if debit else "credit"
             cur_details = {}
-        elif cur_type is not None and ":" in col3:
-            key, _, val = col3.partition(":")
+        elif cur_type is not None and ":" in detail_cell:
+            key, _, val = detail_cell.partition(":")
             cur_details.setdefault(key.strip(), val.strip())
 
     flush()

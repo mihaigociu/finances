@@ -51,10 +51,17 @@ costs). `savings` flags transfers to own accounts (e.g. beneficiary = the accoun
 
 ## Conventions & gotchas (learned the hard way)
 
-- **ING has shipped two CSV layouts.** Columns differ: older = 7 cols (Debit col 5),
-  newer = 8 cols (Debit col 4, added `Balanta`). `import.py` auto-detects the Debit/Credit
-  column indices from the header row (`detect_amount_columns`) — do **not** hardcode them.
-  Symptom of getting this wrong: all amounts import as `NULL` and nothing deduplicates.
+- **ING has shipped several CSV layouts** with columns in different positions (older = 7
+  cols, Debit col 5; a `Balanta` variant = 8 cols, Debit col 4; a newest one whose amounts
+  land at Debit col 6 / Credit col 8). `import.py` maps every column by its **header
+  label** (`detect_columns` → `Columns`), never by fixed order — do **not** hardcode
+  indices. Two subtleties it handles: (a) the newest export shifts the *entire header row*
+  one column right of the data rows, so `detect_columns` measures that shift against the
+  date column (`find_date_column`) and translates header indices into data coordinates;
+  (b) that export appends a trailer of pending/unsettled transactions under a second header
+  with its own shift — the parser skips those (date-rows with no type in the details
+  column). Symptom of getting column mapping wrong: all amounts import as `NULL` and nothing
+  deduplicates.
 - **Dedup key.** Each transaction gets a stable `dedup_key`; import is `INSERT OR IGNORE`.
   Card rows key on `Numar autorizare` + auth date + amount; everything else on a composite
   of date/type/amount/direction/beneficiary/reference. A `#N` occurrence suffix
