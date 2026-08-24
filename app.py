@@ -22,13 +22,20 @@ _import_spec = importlib.util.spec_from_file_location(
 ingimport = importlib.util.module_from_spec(_import_spec)
 _import_spec.loader.exec_module(ingimport)
 
+# Apply any pending schema migrations at startup (before the first import).
+if DB_PATH.exists():
+    _boot = sqlite3.connect(DB_PATH)
+    ingimport.ensure_schema(_boot)
+    _boot.close()
+
 # Categories a merchant can be assigned by hand (matches the frontend palette).
 # "savings" flags money moved to one's own accounts — not a real expense, so it's
 # excluded from spending totals (see spending_filter).
 ALLOWED_CATEGORIES = [
     "groceries", "bakery", "restaurants", "gas", "health", "transport",
     "telecom", "utilities", "subscriptions", "shopping", "education",
-    "insurance", "government", "cash", "transfer", "savings", "other",
+    "insurance", "government", "cash", "transfer", "loan", "bank_fees",
+    "other", "income", "savings", "credit_line",
 ]
 
 # Categories that are not real spending and must be kept out of spending totals.
@@ -307,18 +314,13 @@ def tag_merchant():
                DO UPDATE SET category = excluded.category, confirmed = 1""",
         (vendor, category),
     )
-    cur = con.execute(
-        "UPDATE transactions SET category = ? WHERE vendor_norm = ?",
-        (category, vendor),
-    )
-    updated = cur.rowcount
-    con.commit()
+    # Recompute so this default propagates to all of the vendor's transactions.
+    ingimport.recompute_categories(con)
     con.close()
     return jsonify({
         "vendor_norm": vendor,
         "category": category,
         "confirmed": 1,
-        "updated": updated,
     })
 
 

@@ -118,8 +118,58 @@ DETAIL_LABELS: dict[str, list[str]] = {
     "card":         ["Numar card"],
     "merchant":     ["Tranzactie la", "Terminal"],
     "counterparty": ["Beneficiar", "Ordonator"],
+    "dest_account": ["In contul"],
     "note":         ["Detalii"],
 }
+
+# Romanian IBANs encode the bank in characters 5–8 (e.g. RO28 **RNCB** 0106…). We use
+# that to tell apart transfers to accounts held at *other* banks — e.g. a loan repaid
+# into a BCR account vs. moving money between one's own ING accounts — by appending the
+# bank's short name to vendor_norm, so each becomes a distinct, separately-taggable
+# "merchant". Unknown bank codes fall back to the 4-letter code itself. Extend as needed.
+OWN_BANK_CODE = "INGB"  # the account holder's own bank; transfers here aren't "external"
+IBAN_BANK_CODES: dict[str, str] = {
+    "RNCB": "BCR",
+    "BTRL": "BT",
+    "BRDE": "BRD",
+    "RZBR": "Raiffeisen",
+    "BACX": "UniCredit",
+    "CECE": "CEC",
+    "BREL": "Libra",
+    "OTPV": "OTP",
+    "PIRB": "First Bank",
+}
+
+
+def external_bank(account: str | None) -> str | None:
+    """Short name of a transfer's destination bank, or None for own-bank / non-IBAN
+    accounts. Returns None for ING (own bank) and for internal account numbers that
+    aren't RO IBANs, so only transfers to another bank get a vendor_norm suffix."""
+    if not account:
+        return None
+    m = re.match(r"RO\d{2}([A-Z]{4})", account.strip().upper())
+    if not m or m.group(1) == OWN_BANK_CODE:
+        return None
+    return IBAN_BANK_CODES.get(m.group(1), m.group(1))
+
+
+# Honorifics ING prefixes to the account-holder name ("Titular cont: DL Mihai Gociu").
+_HONORIFICS = {"DL", "DNA", "D-NA", "DOMNUL", "DOAMNA"}
+
+
+def _name_tokens(name: str) -> frozenset:
+    """Uppercase word set of a name, minus honorifics — order-insensitive for matching."""
+    words = re.sub(r"[^\w\s]", " ", name.upper()).split()
+    return frozenset(w for w in words if w not in _HONORIFICS)
+
+
+def is_self_transfer(beneficiary: str | None, holder: str | None) -> bool:
+    """True when a transfer's beneficiary is the account holder themselves (same name,
+    any word order). Used to split a self-transfer by destination bank while leaving
+    transfers to other people/organizations named plainly."""
+    if not beneficiary or not holder:
+        return False
+    return _name_tokens(beneficiary) == _name_tokens(holder)
 
 # Country codes ING appends before the city in the newer single-spaced merchant format.
 # "RO" (domestic) covers almost everything; the rest cover foreign card transactions.
@@ -298,6 +348,9 @@ def parse_transactions(filepath: Path) -> list[dict]:
     cols = detect_columns(rows)
     transactions: list[dict] = []
 
+    # The account holder ("Titular cont: DL Mihai Gociu"), used to detect self-transfers.
+    account_holder: str | None = None
+
     # State for the transaction currently being assembled
     cur_type: str | None = None
     cur_date_str: str | None = None
@@ -328,9 +381,16 @@ def parse_transactions(filepath: Path) -> list[dict]:
         # Beneficiary for transfers out, Ordonator for incoming
         beneficiary = detail(d, "counterparty")
 
-        # Use beneficiary as vendor_norm for transfers so vendor_tags can tag them
+        # Use beneficiary as vendor_norm for transfers so vendor_tags can tag them.
+        # When the money goes to an account at another bank, append that bank's short
+        # name (e.g. "Gociu Mihai BCR") so it's a separate merchant from same-name
+        # transfers to one's own ING accounts.
         if vendor_norm is None and beneficiary:
             vendor_norm = normalize_vendor(beneficiary)
+            if is_self_transfer(beneficiary, account_holder):
+                bank = external_bank(detail(d, "dest_account"))
+                if bank:
+                    vendor_norm = f"{vendor_norm} {bank}"
 
         note = detail(d, "note")
         detail_parts = []
@@ -366,6 +426,14 @@ def parse_transactions(filepath: Path) -> list[dict]:
         while len(row) <= max(cols):
             row.append("")
 
+        # The holder line ("Titular cont: <name>") sits above each page's transactions,
+        # in its own column — scan the whole row rather than assuming a fixed position.
+        if account_holder is None:
+            for cell in row:
+                if cell.strip().startswith("Titular cont"):
+                    account_holder = cell.split(":", 1)[1].strip()
+                    break
+
         date_cell = row[cols.date].strip()
         detail_cell = row[cols.details].strip()
         debit = row[cols.debit].strip()
@@ -393,8 +461,22 @@ def parse_transactions(filepath: Path) -> list[dict]:
     return transactions
 
 
-def apply_vendor_tags(con: sqlite3.Connection) -> int:
-    """Fill in category from vendor_tags for any POS transaction still untagged."""
+def recompute_categories(con: sqlite3.Connection) -> int:
+    """Recompute every transaction's category from scratch, in precedence order:
+
+        1. transaction type      (TYPE_CATEGORIES)
+        2. vendor_tags default   (per-merchant, overrides the type)
+
+    Category is purely derived from those inputs and never hand-authored (see
+    CLAUDE.md), so this is idempotent: editing/deleting a tag and re-running restores
+    the correct state. Returns the number of POS transactions that ended up categorized.
+    """
+    # 1. Base category from transaction type.
+    con.execute("UPDATE transactions SET category = NULL")
+    for typ, cat in TYPE_CATEGORIES.items():
+        con.execute("UPDATE transactions SET category = ? WHERE type = ?", (cat, typ))
+
+    # 2. Per-merchant default from vendor_tags (overrides the type category).
     con.execute(
         """UPDATE transactions
            SET category = (
@@ -414,6 +496,10 @@ def apply_vendor_tags(con: sqlite3.Connection) -> int:
     return count
 
 
+# Backwards-compatible name kept so existing callers (app.py, tag.py) still work.
+apply_vendor_tags = recompute_categories
+
+
 def ensure_schema(con: sqlite3.Connection) -> None:
     """Create tables/columns/index, migrating older databases in place."""
     con.executescript(SCHEMA)
@@ -421,6 +507,9 @@ def ensure_schema(con: sqlite3.Connection) -> None:
     for col in ("auth_number", "dedup_key"):
         if col not in cols:
             con.execute(f"ALTER TABLE transactions ADD COLUMN {col} TEXT")
+    # Drop the retired amount-rules table (superseded by destination-bank vendor_norm
+    # splitting); harmless no-op once it's gone.
+    con.execute("DROP TABLE IF EXISTS vendor_amount_rules")
     con.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_txn_dedup ON transactions(dedup_key)"
     )
@@ -457,6 +546,20 @@ def import_to_db(transactions: list[dict], db_path: Path) -> tuple[sqlite3.Conne
     con.commit()
     after = con.execute("SELECT COUNT(*) FROM transactions").fetchone()[0]
     inserted = after - before
+
+    # Refresh parse-derived display fields on rows that already existed. dedup_key is
+    # stable (it doesn't depend on vendor_norm), so re-importing after a parsing change
+    # (e.g. the destination-bank vendor_norm suffix) updates existing rows in place
+    # rather than requiring a rebuild. Category is left to recompute_categories.
+    con.executemany(
+        """UPDATE transactions
+           SET vendor_raw = :vendor_raw, vendor_norm = :vendor_norm,
+               beneficiary = :beneficiary, details = :details
+           WHERE dedup_key = :dedup_key""",
+        transactions,
+    )
+    con.commit()
+
     skipped = len(transactions) - inserted
     return con, inserted, skipped
 
@@ -508,9 +611,9 @@ if __name__ == "__main__":
         print(f"Backed up existing DB → {bak}")
 
     con, inserted, skipped = import_to_db(txns, DB_PATH)
-    tagged = apply_vendor_tags(con)
+    tagged = recompute_categories(con)
     if tagged:
-        print(f"Applied vendor_tags to {tagged} POS transactions")
+        print(f"Categorized {tagged} POS transactions from vendor tags/rules")
     con.close()
 
     print(f"Saved → {DB_PATH}")

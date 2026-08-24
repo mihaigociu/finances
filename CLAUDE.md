@@ -17,14 +17,18 @@ The checked-in `.venv` runs Python 3.9.6; `anthropic` isn't installed there yet,
 ## Data pipeline (3 stages)
 
 1. **`import.py`** — parse a CSV export → `transactions.db`. **Incremental**: safe to
-   re-run, never deletes, skips rows already present.
+   re-run, never deletes, skips rows already present. Re-import also **refreshes** the
+   parse-derived display fields (`vendor_norm`, `vendor_raw`, `beneficiary`, `details`) on
+   rows that already exist (matched by the stable `dedup_key`), so a change to the parsing
+   logic propagates to old rows on the next import without a rebuild.
    ```bash
    .venv/bin/python import.py [path/to/export.csv]   # defaults to the bundled April CSV
    ```
    The same logic is exposed in the dashboard: the header **Import CSV** button →
    `POST /api/import` (multipart `file`), which loads `import.py` via importlib and calls
-   `parse_transactions` → `backup_db` → `import_to_db` → `apply_vendor_tags`. Prefer editing
-   `import.py`; the endpoint reuses it rather than duplicating parsing.
+   `parse_transactions` → `backup_db` → `import_to_db` → `recompute_categories`. Prefer
+   editing `import.py`; the endpoint reuses it rather than duplicating parsing.
+   (`apply_vendor_tags` remains as a backwards-compatible alias of `recompute_categories`.)
 2. **`tag.py`** — send still-untagged `vendor_norm` values to the Claude API to assign a
    spending category; caches results in `vendor_tags` and applies them to transactions.
    Needs `ANTHROPIC_API_KEY`. Runs against whatever POS merchants lack a category.
@@ -33,12 +37,15 @@ The checked-in `.venv` runs Python 3.9.6; `anthropic` isn't installed there yet,
 
 ## Data model (`transactions.db`)
 
-- **`transactions`** — one row per bank transaction. Category is derived, not entered:
-  assigned by transaction *type* at import (see `TYPE_CATEGORIES` in `import.py`), then
-  overridden per-merchant via `vendor_tags`.
-- **`vendor_tags`** — `(vendor_norm, category, confirmed)`. The **only hand-authored
-  state.** `confirmed=0` = guessed by `tag.py`; `confirmed=1` = set by hand in the
-  Merchants tab. Preserved across re-imports.
+- **`transactions`** — one row per bank transaction. Category is derived, never
+  hand-entered — it's **recomputed** (`recompute_categories` in `import.py`) from two
+  layers, the second overriding the first: (1) transaction *type* (`TYPE_CATEGORIES`),
+  (2) `vendor_tags` per-merchant default. Because it's purely derived, editing/deleting a
+  tag and re-running restores the correct state.
+- **`vendor_tags`** — `(vendor_norm, category, confirmed)`. The only hand-authored state.
+  `confirmed=0` = guessed by `tag.py`; `confirmed=1` = set by hand in the Merchants tab.
+  Preserved across re-imports. Split-by-bank (see below) means one counterparty can appear
+  as several `vendor_norm`s (`Gociu Mihai`, `Gociu Mihai BCR`), each tagged independently.
 - Key columns: `auth_number` + `dedup_key` (dedup, see below), `vendor_norm` (normalized
   merchant/beneficiary name — the join key to `vendor_tags`), `direction` (debit/credit).
 
@@ -85,11 +92,19 @@ costs). `savings` flags transfers to own accounts (e.g. beneficiary = the accoun
   Merchants tab / `vendor_tags` instead, so it survives re-import.
 - `vendor_norm` is also set from the beneficiary for transfers, so counterparties (people,
   charities, insurers) show up as taggable "merchants".
+- **Self-transfers are split by destination bank.** When a transfer's beneficiary *is the
+  account holder* (`is_self_transfer` compares the `Titular cont:` name to the beneficiary,
+  order-insensitive) and the money goes to an account at another bank, `vendor_norm` gets a
+  short bank-name suffix from the destination IBAN's bank code (`external_bank` +
+  `IBAN_BANK_CODES`, e.g. `RNCB` → `BCR`). So `Gociu Mihai` (own ING accounts) and `Gociu
+  Mihai BCR` (a loan repaid into a BCR account) become separate, separately-taggable
+  merchants. Only self-transfers are suffixed — transfers to other people/orgs keep plain
+  names. Applies on (re-)import; requires re-importing the CSV to re-split existing rows.
 - `tag.py` pins `model="claude-opus-4-7"` — outdated; bump to a current model when touched.
 
 ## API endpoints (`app.py`)
 `/api/years`, `/api/cards`, `/api/categories`, `/api/summary`, `/api/monthly`,
 `/api/vendors`, `/api/transactions` (paginated, searchable), `/api/merchants` (+ `POST
-/api/merchants/tag` to categorize a merchant → writes `vendor_tags` confirmed=1 and re-tags
-its transactions), `POST /api/import` (upload a CSV to import). Spending endpoints share
-`spending_filter()`.
+/api/merchants/tag` to categorize a merchant → writes `vendor_tags` confirmed=1 and calls
+`recompute_categories` so the new default propagates to all its transactions), `POST
+/api/import` (upload a CSV to import). Spending endpoints share `spending_filter()`.

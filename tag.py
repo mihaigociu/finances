@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import sqlite3
 import sys
@@ -11,6 +12,13 @@ from pathlib import Path
 import anthropic
 
 DB_PATH = Path("transactions.db")
+
+# Reuse recompute_categories from import.py (can't `import import`, it's a keyword).
+_import_spec = importlib.util.spec_from_file_location(
+    "ingimport", str(Path(__file__).resolve().parent / "import.py")
+)
+ingimport = importlib.util.module_from_spec(_import_spec)
+_import_spec.loader.exec_module(ingimport)
 
 CATEGORIES = [
     "groceries",
@@ -165,19 +173,9 @@ def save_and_apply(tags: dict[str, str], db_path: Path) -> int:
            ON CONFLICT (vendor_norm) DO UPDATE SET category = excluded.category""",
         [(v, c) for v, c in tags.items()],
     )
-    con.execute(
-        """UPDATE transactions
-           SET category = (
-               SELECT vt.category FROM vendor_tags vt
-               WHERE vt.vendor_norm = transactions.vendor_norm
-           )
-           WHERE vendor_norm IS NOT NULL
-             AND EXISTS (
-                 SELECT 1 FROM vendor_tags vt
-                 WHERE vt.vendor_norm = transactions.vendor_norm
-             )"""
-    )
-    con.commit()
+    # Recompute all categories so newly-inserted tags apply while existing
+    # vendor_tags defaults are preserved (not clobbered).
+    ingimport.recompute_categories(con)
     (applied,) = con.execute(
         "SELECT COUNT(*) FROM transactions WHERE category IS NOT NULL AND type LIKE '%POS%'"
     ).fetchone()
