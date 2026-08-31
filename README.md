@@ -10,10 +10,9 @@ interactive dashboard. Runs entirely on your machine — your financial data nev
   incremental and de-duplicated, so re-importing overlapping statements never creates
   duplicates. ING has shipped several different CSV layouts over the years; the parser
   detects columns and detail-line labels by name, so old and new exports both work.
-- **Automatic categorization** — transactions are categorized by type, and merchants
-  (POS purchases) are classified into spending categories using the Claude API.
-- **Manual categorization** — review and correct any merchant's category by hand in the
-  **Merchants** tab; your choices are remembered and survive future imports.
+- **Categorization** — transactions get a category from their transaction type
+  automatically; merchants (POS purchases) are categorized by hand in the **Merchants**
+  tab, and your choices are remembered and survive future imports.
 - **Transfers show up as taggable "merchants"** — the beneficiary of a transfer becomes the
   merchant name, so people, charities and insurers can be categorized like any shop.
   Transfers to *yourself* are additionally split by destination bank (e.g. `Gociu Mihai` vs
@@ -37,13 +36,13 @@ cd finances
 
 python3 -m venv .venv
 source .venv/bin/activate
-pip install flask anthropic        # anthropic only needed for tag.py
+pip install flask
 
 python app.py                      # → http://localhost:5000
 ```
 
-Python 3.9+. Dependencies are declared in `Pipfile` (`flask>=3.1`, `anthropic`) if you
-prefer `pipenv install`.
+Python 3.9+. Flask is the only dependency; it's declared in `Pipfile` (`flask>=3.1`) if
+you prefer `pipenv install`.
 
 ## Usage
 
@@ -59,15 +58,9 @@ first (`transactions.db.bak-<timestamp>`, the five most recent are kept).
 
 ### 2. Categorize merchants
 
-New POS merchants start uncategorized (and are excluded from spending totals until tagged):
-
-- **Automatically** with the Claude API (requires `ANTHROPIC_API_KEY`):
-  ```bash
-  export ANTHROPIC_API_KEY=sk-...
-  python tag.py
-  ```
-- **By hand** in the **Merchants** tab — filter to *Untagged*, pick a category from the
-  dropdown. Manual tags are marked confirmed and take priority.
+New POS merchants start uncategorized (and are excluded from spending totals until tagged).
+Tag them in the **Merchants** tab: filter to *Untagged* and pick a category from the
+dropdown. A merchant's tag takes priority over the category implied by transaction type.
 
 A transaction's category is always *derived* — recomputed from its type plus the merchant's
 tag — so it is never edited directly. Fixing a merchant's tag fixes all of its
@@ -91,7 +84,6 @@ and full transaction history).
 |------|---------|
 | `app.py` | Flask server: JSON API + CSV upload endpoint |
 | `import.py` | CSV parsing and incremental, de-duplicated import |
-| `tag.py` | Claude-based merchant categorization |
 | `static/` | Dashboard frontend (`index.html`, `app.js`, `style.css`) |
 | `Pipfile` | Dependency declarations |
 | `CLAUDE.md` | Architecture notes and conventions for contributors |

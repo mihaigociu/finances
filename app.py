@@ -271,17 +271,14 @@ def merchants():
     having = ""
     if filt == "untagged":
         having = "HAVING vt.category IS NULL"
-    elif filt == "unconfirmed":  # tagged by Claude but not yet human-confirmed
-        having = "HAVING vt.category IS NOT NULL AND COALESCE(vt.confirmed, 0) = 0"
-    elif filt == "confirmed":
-        having = "HAVING COALESCE(vt.confirmed, 0) = 1"
+    elif filt == "tagged":
+        having = "HAVING vt.category IS NOT NULL"
 
     con = db()
     rows = con.execute(
         f"""SELECT t.vendor_norm AS vendor_norm,
                    vt.category AS category,
                    MAX(t.category) AS txn_category,
-                   COALESCE(vt.confirmed, 0) AS confirmed,
                    COUNT(*) AS count,
                    ROUND(SUM(CASE WHEN t.direction = 'debit' THEN t.amount ELSE 0 END), 2) AS total
             FROM transactions t

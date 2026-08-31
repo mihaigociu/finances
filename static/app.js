@@ -676,8 +676,7 @@ function renderMerchants(merchants) {
 }
 
 function statusMarkup(m) {
-  if (m.confirmed) return '<span class="status-pill confirmed">✓ confirmed</span>';
-  if (m.category) return '<span class="status-pill guessed">AI</span>';
+  if (m.category) return '<span class="status-pill tagged">✓ tagged</span>';
   if (m.txn_category) return '<span class="status-pill auto">auto · by type</span>';
   return '<span style="color:var(--muted);font-size:12px">untagged</span>';
 }
@@ -694,7 +693,6 @@ async function saveMerchant(m, category, tr, sel, statusTd) {
     if (!r.ok) throw new Error(`save failed (${r.status})`);
     m.category = category;
     m.txn_category = category;
-    m.confirmed = 1;
     sel.style.borderColor = COLORS[category] || 'var(--border)';
     statusTd.innerHTML = statusMarkup(m);
     S.merchantsStale = true;  // overview/trends need re-fetch when we leave this tab

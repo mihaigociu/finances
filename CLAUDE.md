@@ -10,11 +10,10 @@ spending dashboard. Single user, runs locally, all amounts in **RON**.
 .venv/bin/python app.py          # dashboard at http://localhost:5000 (Flask debug, auto-reload)
 ```
 
-Dependencies (declared in `Pipfile`): `flask` (dashboard) and `anthropic` (only `tag.py`).
-The checked-in `.venv` runs Python 3.9.6; `anthropic` isn't installed there yet, so
-`tag.py` needs `pip install anthropic` before its first run. No `Pipfile.lock`.
+Only dependency (declared in `Pipfile`): `flask`. The checked-in `.venv` runs
+Python 3.9.6 with Flask 3.1.3 installed. No `Pipfile.lock`.
 
-## Data pipeline (3 stages)
+## Data pipeline (2 stages)
 
 1. **`import.py`** — parse a CSV export → `transactions.db`. **Incremental**: safe to
    re-run, never deletes, skips rows already present. Re-import also **refreshes** the
@@ -29,10 +28,7 @@ The checked-in `.venv` runs Python 3.9.6; `anthropic` isn't installed there yet,
    `parse_transactions` → `backup_db` → `import_to_db` → `recompute_categories`. Prefer
    editing `import.py`; the endpoint reuses it rather than duplicating parsing.
    (`apply_vendor_tags` remains as a backwards-compatible alias of `recompute_categories`.)
-2. **`tag.py`** — send still-untagged `vendor_norm` values to the Claude API to assign a
-   spending category; caches results in `vendor_tags` and applies them to transactions.
-   Needs `ANTHROPIC_API_KEY`. Runs against whatever POS merchants lack a category.
-3. **`app.py`** — Flask JSON API + static dashboard in `static/` (vanilla JS + Chart.js,
+2. **`app.py`** — Flask JSON API + static dashboard in `static/` (vanilla JS + Chart.js,
    no build step). Tabs: Overview, Monthly, Transactions, Merchants. On startup it calls
    `ingimport.ensure_schema` so schema migrations land before the first request/import.
 
@@ -43,8 +39,10 @@ The checked-in `.venv` runs Python 3.9.6; `anthropic` isn't installed there yet,
   layers, the second overriding the first: (1) transaction *type* (`TYPE_CATEGORIES`),
   (2) `vendor_tags` per-merchant default. Because it's purely derived, editing/deleting a
   tag and re-running restores the correct state.
-- **`vendor_tags`** — `(vendor_norm, category, confirmed)`. The only hand-authored state.
-  `confirmed=0` = guessed by `tag.py`; `confirmed=1` = set by hand in the Merchants tab.
+- **`vendor_tags`** — `(vendor_norm, category, confirmed)`. The only hand-authored state,
+  written solely by the Merchants tab. `confirmed` is a vestige of a removed automated
+  tagger (`tag.py`, dropped 2026-08-31): every tag is now hand-made, so the column is
+  always 1 and nothing reads it — the schema keeps it to avoid a migration.
   Preserved across re-imports. Split-by-bank (see below) means one counterparty can appear
   as several `vendor_norm`s (`Gociu Mihai`, `Gociu Mihai BCR`), each tagged independently.
 - Key columns: `auth_number` + `dedup_key` (dedup, see below), `vendor_norm` (normalized
@@ -103,7 +101,6 @@ the split-by-bank naming below exists to make possible).
   Mihai BCR` (a loan repaid into a BCR account) become separate, separately-taggable
   merchants. Only self-transfers are suffixed — transfers to other people/orgs keep plain
   names. Applies on (re-)import; requires re-importing the CSV to re-split existing rows.
-- `tag.py` pins `model="claude-opus-4-7"` — outdated; bump to a current model when touched.
 
 ## API endpoints (`app.py`)
 `/api/years`, `/api/cards`, `/api/categories`, `/api/summary`, `/api/monthly`,

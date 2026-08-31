@@ -496,7 +496,7 @@ def recompute_categories(con: sqlite3.Connection) -> int:
     return count
 
 
-# Backwards-compatible name kept so existing callers (app.py, tag.py) still work.
+# Backwards-compatible name kept so existing callers (app.py) still work.
 apply_vendor_tags = recompute_categories
 
 
