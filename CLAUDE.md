@@ -33,7 +33,8 @@ The checked-in `.venv` runs Python 3.9.6; `anthropic` isn't installed there yet,
    spending category; caches results in `vendor_tags` and applies them to transactions.
    Needs `ANTHROPIC_API_KEY`. Runs against whatever POS merchants lack a category.
 3. **`app.py`** — Flask JSON API + static dashboard in `static/` (vanilla JS + Chart.js,
-   no build step). Tabs: Overview, Monthly, Transactions, Merchants.
+   no build step). Tabs: Overview, Monthly, Transactions, Merchants. On startup it calls
+   `ingimport.ensure_schema` so schema migrations land before the first request/import.
 
 ## Data model (`transactions.db`)
 
@@ -54,7 +55,9 @@ The checked-in `.venv` runs Python 3.9.6; `anthropic` isn't installed there yet,
 `/api/categories`; `app.js` `COLORS` must have an entry per category). Spending totals
 **exclude** `NON_SPENDING = ("credit_line", "income", "savings")` — money borrowed, money
 in, or money moved to your own accounts. `loan` and `bank_fees` **do** count (real credit
-costs). `savings` flags transfers to own accounts (e.g. beneficiary = the account holder).
+costs). `savings` is **not** inferred automatically — self-transfers get the `transfer` type
+category and only become `savings` once their `vendor_norm` is tagged that way (which is what
+the split-by-bank naming below exists to make possible).
 
 ## Conventions & gotchas (learned the hard way)
 
@@ -104,7 +107,9 @@ costs). `savings` flags transfers to own accounts (e.g. beneficiary = the accoun
 
 ## API endpoints (`app.py`)
 `/api/years`, `/api/cards`, `/api/categories`, `/api/summary`, `/api/monthly`,
-`/api/vendors`, `/api/transactions` (paginated, searchable), `/api/merchants` (+ `POST
+`/api/vendors`, `/api/transactions` (paginated + `search`, `month`, `category` filters;
+`group=vendor` switches the response from a page of rows to one aggregated row per vendor,
+biggest spend first), `/api/merchants` (+ `POST
 /api/merchants/tag` to categorize a merchant → writes `vendor_tags` confirmed=1 and calls
 `recompute_categories` so the new default propagates to all its transactions), `POST
 /api/import` (upload a CSV to import). Spending endpoints share `spending_filter()`.

@@ -8,13 +8,21 @@ interactive dashboard. Runs entirely on your machine — your financial data nev
 
 - **CSV import** — upload ING exports straight from the dashboard (or via CLI). Imports are
   incremental and de-duplicated, so re-importing overlapping statements never creates
-  duplicates. The parser auto-detects ING's different CSV column layouts.
+  duplicates. ING has shipped several different CSV layouts over the years; the parser
+  detects columns and detail-line labels by name, so old and new exports both work.
 - **Automatic categorization** — transactions are categorized by type, and merchants
   (POS purchases) are classified into spending categories using the Claude API.
 - **Manual categorization** — review and correct any merchant's category by hand in the
   **Merchants** tab; your choices are remembered and survive future imports.
-- **Dashboard** — spending by category (donut), monthly trends (stacked bar + line charts),
-  and a searchable, filterable transaction list. Filter everything by year and card.
+- **Transfers show up as taggable "merchants"** — the beneficiary of a transfer becomes the
+  merchant name, so people, charities and insurers can be categorized like any shop.
+  Transfers to *yourself* are additionally split by destination bank (e.g. `Gociu Mihai` vs
+  `Gociu Mihai BCR`), so money moved to your own account at another bank can be tagged
+  separately — typically one as `savings` (excluded from spending) and the other as `loan`.
+- **Dashboard** — four tabs: **Overview** (KPIs, spending-by-category donut, top vendors),
+  **Monthly** (stacked-bar and per-category line trends), **Transactions** (searchable list
+  with month and category filters, plus a *Group by vendor* view that totals spending per
+  merchant), and **Merchants** (categorization). Year and card filters apply everywhere.
 
 ## Tech stack
 
@@ -34,7 +42,8 @@ pip install flask anthropic        # anthropic only needed for tag.py
 python app.py                      # → http://localhost:5000
 ```
 
-Python 3.9+.
+Python 3.9+. Dependencies are declared in `Pipfile` (`flask>=3.1`, `anthropic`) if you
+prefer `pipenv install`.
 
 ## Usage
 
@@ -45,7 +54,8 @@ Export your transactions from ING as CSV, then either:
 - **From the dashboard:** click **Import CSV** in the header and select the file, or
 - **From the CLI:** `python import.py path/to/export.csv`
 
-Re-importing is safe — only new transactions are added.
+Re-importing is safe — only new transactions are added, and the database is backed up
+first (`transactions.db.bak-<timestamp>`, the five most recent are kept).
 
 ### 2. Categorize merchants
 
@@ -59,11 +69,21 @@ New POS merchants start uncategorized (and are excluded from spending totals unt
 - **By hand** in the **Merchants** tab — filter to *Untagged*, pick a category from the
   dropdown. Manual tags are marked confirmed and take priority.
 
+A transaction's category is always *derived* — recomputed from its type plus the merchant's
+tag — so it is never edited directly. Fixing a merchant's tag fixes all of its
+transactions, past and future.
+
+### What counts as spending
+
+Spending totals cover money actually spent, so they exclude `credit_line` (money
+borrowed), `income`, and `savings` (money moved to your own accounts). Loan repayments and
+bank fees *do* count — they are real costs. Amounts are assumed to be in **RON**.
+
 ## Data & privacy
 
 All data stays local. The CSV exports and the `transactions.db` database are **git-ignored**
 and never committed — they contain personal information (name, national ID, account numbers,
-and full transaction history). Amounts are assumed to be in **RON**.
+and full transaction history).
 
 ## Project layout
 
@@ -73,4 +93,5 @@ and full transaction history). Amounts are assumed to be in **RON**.
 | `import.py` | CSV parsing and incremental, de-duplicated import |
 | `tag.py` | Claude-based merchant categorization |
 | `static/` | Dashboard frontend (`index.html`, `app.js`, `style.css`) |
+| `Pipfile` | Dependency declarations |
 | `CLAUDE.md` | Architecture notes and conventions for contributors |
