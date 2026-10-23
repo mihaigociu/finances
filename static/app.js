@@ -399,11 +399,17 @@ function renderStackedBar() {
         legend: { display: false },
         tooltip: {
           itemSort: (a, b) => b.parsed.y - a.parsed.y,  // biggest category for that month first
+          // Compact rows: a month with ~20 categories otherwise outgrows the chart
+          // and the bottom of the tooltip gets clipped.
+          padding: 6,
+          bodySpacing: 0,
+          bodyFont: { size: 11 },
           callbacks: {
             label: ctx => ctx.parsed.y > 0 ? ` ${ctx.dataset.label}: ${fmt(ctx.parsed.y)}` : null,
-            footer: items => {
+            // Total in the title (top), so it stays visible even if the tooltip is clipped.
+            title: items => {
               const total = items.reduce((s, i) => s + i.parsed.y, 0);
-              return `Total: ${fmt(total)}`;
+              return [items[0].label, `Total: ${fmt(total)}`];
             },
           },
         },
