@@ -12,6 +12,7 @@ const COLORS = {
   subscriptions: '#f59e0b',
   shopping:      '#ec4899',
   education:     '#14b8a6',
+  bookstore:     '#92400e',
   insurance:     '#64748b',
   government:    '#94a3b8',
   cash:          '#ca8a04',
@@ -27,7 +28,7 @@ const COLORS = {
 const SPENDING_CATS = [
   'groceries','bakery','restaurants','gas','health','transport',
   'telecom','utilities','subscriptions','shopping','education',
-  'insurance','government','cash','transfer','loan','bank_fees','other',
+  'bookstore','insurance','government','cash','transfer','loan','bank_fees','other',
 ];
 
 // Non-spending categories, appended so they remain filterable in the Transactions tab.

@@ -34,7 +34,7 @@ if DB_PATH.exists():
 ALLOWED_CATEGORIES = [
     "groceries", "bakery", "restaurants", "gas", "health", "transport",
     "telecom", "utilities", "subscriptions", "shopping", "education",
-    "insurance", "government", "cash", "transfer", "loan", "bank_fees",
+    "bookstore", "insurance", "government", "cash", "transfer", "loan", "bank_fees",
     "other", "income", "savings", "credit_line",
 ]
 
