@@ -87,6 +87,17 @@ def years():
     return jsonify([r["y"] for r in rows])
 
 
+@app.route("/api/months")
+def months():
+    con = db()
+    rows = con.execute(
+        """SELECT DISTINCT strftime('%Y-%m', COALESCE(auth_date, settlement_date)) AS m
+           FROM transactions WHERE m IS NOT NULL ORDER BY m DESC"""
+    ).fetchall()
+    con.close()
+    return jsonify([r["m"] for r in rows])
+
+
 @app.route("/api/cards")
 def cards():
     con = db()
@@ -167,8 +178,8 @@ def transactions():
     if year:
         clauses.append("strftime('%Y', COALESCE(auth_date, settlement_date)) = ?")
         params.append(year)
-    if month:
-        clauses.append("strftime('%m', COALESCE(auth_date, settlement_date)) = ?")
+    if month:  # YYYY-MM
+        clauses.append("strftime('%Y-%m', COALESCE(auth_date, settlement_date)) = ?")
         params.append(month)
     if category:
         clauses.append("category = ?")

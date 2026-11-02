@@ -49,6 +49,7 @@ let lineActive = new Set(SPENDING_CATS);
 let searchTimer = null;
 let merchantTimer = null;
 let merchantCats = [];
+let txnMonths = [];  // "YYYY-MM" with any transactions, newest first
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -90,10 +91,11 @@ function qs() {
 // ── Init ─────────────────────────────────────────────────────────────────────
 
 async function init() {
-  const [years, cards, cats] = await Promise.all([
-    api('/api/years'), api('/api/cards'), api('/api/categories'),
+  const [years, cards, cats, months] = await Promise.all([
+    api('/api/years'), api('/api/cards'), api('/api/categories'), api('/api/months'),
   ]);
   merchantCats = cats;
+  txnMonths = months;
 
   const yearSel = document.getElementById('year-filter');
   years.forEach(y => {
@@ -109,7 +111,7 @@ async function init() {
     cardSel.appendChild(o);
   });
 
-  yearSel.addEventListener('change', () => { S.year = yearSel.value; refresh(); });
+  yearSel.addEventListener('change', () => { S.year = yearSel.value; fillMonthFilter(); refresh(); });
   cardSel.addEventListener('change', () => { S.card = cardSel.value; refresh(); });
 
   document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -129,14 +131,7 @@ async function init() {
   });
 
   const monthFilter = document.getElementById('month-filter');
-  const monthNames = ['January','February','March','April','May','June',
-                      'July','August','September','October','November','December'];
-  monthNames.forEach((name, i) => {
-    const o = document.createElement('option');
-    o.value = String(i + 1).padStart(2, '0');
-    o.textContent = name;
-    monthFilter.appendChild(o);
-  });
+  fillMonthFilter();
   monthFilter.addEventListener('change', () => {
     S.txnMonth = monthFilter.value;
     renderTransactions(1);
@@ -172,6 +167,25 @@ async function init() {
   importFile.addEventListener('change', () => uploadCsv(importFile, importBtn));
 
   await refresh();
+}
+
+// Month filter options are concrete months ("July 2026"), newest first, limited to
+// the selected year. A month-of-year alone would mix e.g. July 2025 and July 2026.
+function fillMonthFilter() {
+  const sel = document.getElementById('month-filter');
+  const names = ['January','February','March','April','May','June',
+                 'July','August','September','October','November','December'];
+  const shown = txnMonths.filter(ym => !S.year || ym.startsWith(S.year + '-'));
+  if (!shown.includes(S.txnMonth)) S.txnMonth = '';
+  sel.length = 1;  // keep "All months"
+  shown.forEach(ym => {
+    const [y, m] = ym.split('-');
+    const o = document.createElement('option');
+    o.value = ym;
+    o.textContent = `${names[+m - 1]} ${y}`;
+    sel.appendChild(o);
+  });
+  sel.value = S.txnMonth;
 }
 
 // ── CSV import ─────────────────────────────────────────────────────────────────

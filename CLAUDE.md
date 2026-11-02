@@ -103,8 +103,9 @@ the split-by-bank naming below exists to make possible).
   names. Applies on (re-)import; requires re-importing the CSV to re-split existing rows.
 
 ## API endpoints (`app.py`)
-`/api/years`, `/api/cards`, `/api/categories`, `/api/summary`, `/api/monthly`,
-`/api/vendors`, `/api/transactions` (paginated + `search`, `month`, `category` filters;
+`/api/years`, `/api/months` (`YYYY-MM` list for the month filter), `/api/cards`,
+`/api/categories`, `/api/summary`, `/api/monthly`, `/api/vendors`, `/api/transactions`
+(paginated + `search`, `month` (`YYYY-MM`), `category` filters;
 `group=vendor` switches the response from a page of rows to one aggregated row per vendor,
 biggest spend first), `/api/merchants` (+ `POST
 /api/merchants/tag` to categorize a merchant → writes `vendor_tags` confirmed=1 and calls
