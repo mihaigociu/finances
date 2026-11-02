@@ -443,8 +443,25 @@ function renderLineToggles() {
   const container = document.getElementById('line-toggles');
   container.innerHTML = '';
   const catsWithData = new Set(S.monthly.map(r => r.category));
+  const shown = SPENDING_CATS.filter(c => catsWithData.has(c));
 
-  SPENDING_CATS.filter(c => catsWithData.has(c)).forEach(c => {
+  // Bulk toggles, so following a single category doesn't mean clicking off all the rest.
+  [['Select all', () => shown.forEach(c => lineActive.add(c)), shown.every(c => lineActive.has(c))],
+   ['Deselect all', () => lineActive.clear(), !shown.some(c => lineActive.has(c))],
+  ].forEach(([text, action, noop]) => {
+    const btn = document.createElement('button');
+    btn.className = 'cat-toggle cat-toggle-bulk';
+    btn.textContent = text;
+    btn.disabled = noop;
+    btn.addEventListener('click', () => {
+      action();
+      renderLineToggles();
+      renderLineChart();
+    });
+    container.appendChild(btn);
+  });
+
+  shown.forEach(c => {
     const on = lineActive.has(c);
     const color = COLORS[c] || '#ccc';
     const btn = document.createElement('button');

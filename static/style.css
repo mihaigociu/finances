@@ -245,6 +245,20 @@ main { padding: 20px 24px; max-width: 1440px; margin: 0 auto; }
   transition: opacity .15s, background .15s, color .15s;
 }
 
+.cat-toggle-bulk {
+  border-color: var(--border);
+  color: var(--muted);
+}
+
+.cat-toggle-bulk + .cat-toggle:not(.cat-toggle-bulk) {
+  margin-left: 8px;  /* gap between the bulk buttons and the category chips */
+}
+
+.cat-toggle-bulk:disabled {
+  opacity: .45;
+  cursor: default;
+}
+
 /* ── Transactions tab ── */
 .txn-controls {
   display: flex;
